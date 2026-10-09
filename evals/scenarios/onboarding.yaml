@@ -1,0 +1,33 @@
+id: onboarding
+request: Onboard Arjun Nair, joining Engineering on 2026-11-02, reporting to Anita Desai. His personal email is arjun.nair@example.test
+files: []
+faults: []
+approvals:
+  auto: true
+expect: success
+min_approvals: 1
+ground_truth:
+  success:
+    sql:
+    - db: company_env/data/hr.db
+      query: SELECT name, department, cost_center, manager, start_date FROM employees WHERE name='Arjun Nair'
+      expect:
+      - name: Arjun Nair
+        department: Engineering
+        cost_center: CC-4410
+        manager: Anita Desai
+        start_date: '2026-11-02'
+    - db: company_env/data/hr.db
+      query: SELECT COUNT(*) AS n FROM accounts WHERE emp_code=(SELECT emp_code FROM employees WHERE name='Arjun Nair')
+      expect:
+      - n: 4
+    - db: company_env/data/ticketing.db
+      query: SELECT COUNT(*) AS n FROM tickets WHERE title LIKE '%Arjun Nair%' AND category='Hardware'
+      expect:
+      - n: 1
+    files:
+    - path: company_env/data/out/welcome_Arjun_Nair.docx
+      contains: Arjun Nair
+    globs:
+    - pattern: company_env/data/out/outbox/*.json
+      min: 1

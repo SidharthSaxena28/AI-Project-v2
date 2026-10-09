@@ -1,0 +1,27 @@
+# Systems registry. The model sees this file WITHOUT credentials (see context/registry.py).
+systems:
+  expense_portal:
+    type: web
+    description: Employee expense claims and the AP ledger
+    base_url: http://localhost:8001
+    login: {path: /login, user_env: PORTAL_USER, password_env: PORTAL_PASSWORD}
+    db: expense            # read-only SQL alias -> company_env/data/expense.db
+    api: {claims: /api/claims, ledger: /api/ledger}
+  hr_portal:
+    type: web
+    description: HR system of record - employees and system accounts
+    base_url: http://localhost:8002
+    login: {path: /login, user_env: PORTAL_USER, password_env: PORTAL_PASSWORD}
+    db: hr
+    api: {employees: /api/employees}
+  ticketing:
+    type: web
+    description: IT ticketing (laptops, access requests, finance follow-ups)
+    base_url: http://localhost:8003
+    login: {path: /login, user_env: PORTAL_USER, password_env: PORTAL_PASSWORD}
+    db: ticketing
+    api: {tickets: /api/tickets}
+databases:
+  expense: company_env/data/expense.db
+  hr: company_env/data/hr.db
+  ticketing: company_env/data/ticketing.db

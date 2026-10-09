@@ -1,0 +1,14 @@
+[project]
+name = "ai-operator"
+version = "0.1.0"
+description = "AI Operator: plan, act, verify and escalate across company systems"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = ["e2e: needs a live LLM and a browser (set ANTHROPIC_API_KEY)"]
+addopts = "-m 'not e2e'"
+
+[tool.ruff]
+line-length = 110

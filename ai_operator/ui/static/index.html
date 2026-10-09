@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Operator - console</title>
+<style>
+:root{--bg:#eceff0;--ink:#12201b;--panel:#fff;--line:#cfd6d3;--teal:#0b6e68;--amber:#b8730a;--red:#b3261e;--green:#0f7b4a;--mute:#66726d}
+@media (prefers-color-scheme:dark){:root{--bg:#10171a;--ink:#e3ebe8;--panel:#182226;--line:#2c3a3f;--mute:#8da09a;--teal:#4fc4bb;--amber:#e8a63c;--red:#ff7b72;--green:#4cc38a}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,sans-serif;height:100vh;display:flex;flex-direction:column}
+header{display:flex;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--panel);align-items:center}
+header h1{font-size:15px;margin:0 12px 0 0;letter-spacing:.02em}
+header input{flex:1;padding:8px 10px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--ink);font:inherit}
+header input.files{flex:.6}button{font:inherit;padding:8px 14px;border-radius:4px;border:1px solid var(--ink);background:var(--ink);color:var(--bg);cursor:pointer}
+button.ghost{background:transparent;color:var(--ink)}button.danger{background:var(--red);border-color:var(--red);color:#fff}
+main{flex:1;display:grid;grid-template-columns:minmax(380px,1fr) minmax(380px,1fr);min-height:0}
+section{overflow:auto;padding:14px 16px}#left{border-right:1px solid var(--line)}
+.row{display:grid;grid-template-columns:62px 1fr;gap:8px;padding:5px 0;border-bottom:1px dashed var(--line);font:12.5px ui-monospace,Menlo,monospace}
+.row .k{color:var(--mute)}.chip{display:inline-block;padding:0 6px;border-radius:3px;font-size:11px;border:1px solid currentColor;margin-right:6px}
+.T0{color:var(--mute)}.T1{color:var(--teal)}.T2{color:var(--amber)}.T3{color:var(--red);font-weight:600}.pass{color:var(--green)}.fail{color:var(--red)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px;margin-bottom:12px}
+.card.alert{border-color:var(--amber);border-width:2px}.card h3{margin:0 0 6px;font-size:14px}
+img#shot{width:100%;border:1px solid var(--line);border-radius:4px;background:var(--panel)}pre{white-space:pre-wrap;margin:0;font:12px ui-monospace,Menlo,monospace}
+#badge{font-size:20px;font-weight:700}.hidden{display:none}textarea,input.ans{width:100%;padding:8px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--ink);font:inherit}
+.actions{display:flex;gap:8px;margin-top:10px}
+@media(max-width:800px){main{grid-template-columns:1fr}}
+</style></head><body>
+<header><h1>AI Operator</h1>
+<input id="req" placeholder="Request, e.g. Reimburse Priya's Mumbai trip" value="Reimburse Priya's Mumbai trip">
+<input id="files" class="files" placeholder="files / folders" value="company_env/data/receipts/mumbai">
+<button id="go">Run</button></header>
+<main>
+<section id="left"><div id="log"></div></section>
+<section id="right">
+  <div class="card hidden" id="outcome"><div id="badge"></div><div id="reasons"></div><p><a id="rep" target="_blank">Open evidence report</a></p></div>
+  <div class="card alert hidden" id="approval"><h3>Approval required</h3><div id="apBody"></div>
+    <details><summary>Edit arguments</summary><textarea id="apArgs" rows="4"></textarea></details>
+    <div class="actions"><button id="ok">Approve</button><button class="danger" id="no">Reject</button><button class="ghost" id="ed">Approve with edits</button></div></div>
+  <div class="card alert hidden" id="ask"><h3 id="askT">Question</h3><div id="askBody"></div><input class="ans" id="askIn">
+    <div class="actions"><button id="askGo">Send</button><button class="ghost hidden" id="abort">Abort run</button></div></div>
+  <div class="card"><h3>Current screen</h3><img id="shot" alt="no screenshot yet"></div>
+  <div class="card"><h3>Extracted facts</h3><pre id="facts">{}</pre></div>
+</section></main>
+<script>
+const $=id=>document.getElementById(id);let rid=null,es=null;
+const esc=s=>String(s??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+function row(k,html){const d=document.createElement("div");d.className="row";d.innerHTML=`<span class=k>${k}</span><span>${html}</span>`;$("log").appendChild(d);d.scrollIntoView({block:"end"})}
+const post=(p,b)=>fetch(`/runs/${rid}/${p}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});
+const shot=p=>{if(p){$("shot").src=`/runs/${rid}/screens/${p.split("/").pop()}`}};
+$("go").onclick=async()=>{$("log").innerHTML="";["outcome","approval","ask"].forEach(i=>$(i).classList.add("hidden"));
+  const files=$("files").value.split(",").map(s=>s.trim()).filter(Boolean);
+  const r=await fetch("/runs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({request:$("req").value,files})});
+  rid=(await r.json()).run_id;if(es)es.close();es=new EventSource(`/runs/${rid}/stream`);
+  es.onmessage=m=>handle(JSON.parse(m.data));
+  es.addEventListener("done",m=>{const d=JSON.parse(m.data);es.close();finish(d)})};
+function handle({type:t,payload:p}){
+  if(t==="plan")row("plan",p.steps.map(s=>esc(s.id+" "+s.goal)).join("<br>"));
+  else if(t==="replan")row("replan",`v${p.from}→v${p.to}: ${esc(p.note)}`);
+  else if(t==="step_start")row("step",`<b>${esc(p.step.id)}</b> ${esc(p.step.goal)}`);
+  else if(t==="decision")row("act",`<span class="chip ${p.decision.tier}">${p.decision.tier}</span>${esc(p.action.tool)} <span class=k>${esc(JSON.stringify(p.action.args)).slice(0,110)}</span> → <b>${p.decision.verdict}</b> <span class=k>${esc(p.decision.reason)}</span>`);
+  else if(t==="observation"){row("obs",p.ok?"ok":`<span class=fail>${esc(p.error)}</span>`);shot(p.screenshot)}
+  else if(t==="memory"){facts[p.key]=p.value;$("facts").textContent=JSON.stringify(facts,null,1)}
+  else if(t==="verify")row("verify",`<span class="${p.passed?"pass":"fail"}">${p.passed?"PASS":"FAIL"}</span> ${esc(p.description)} <span class=k>${esc(p.actual).slice(0,140)}</span>`);
+  else if(t==="approval_request"){shot(p.screenshot);$("apBody").innerHTML=`<p><span class="chip ${p.tier}">${p.tier}</span><b>${esc(p.action.tool)}</b></p><pre>${esc(JSON.stringify(p.action.args,null,1))}</pre><p>${esc(p.reason)}</p><p class=k>${esc(p.rationale).slice(0,300)}</p>`;$("apArgs").value=JSON.stringify(p.action.args);$("approval").classList.remove("hidden");row("human","approval requested: "+esc(p.action.tool))}
+  else if(t==="approval_response"){$("approval").classList.add("hidden");row("human",p.approved?"approved":"rejected")}
+  else if(t==="question"||t==="help_request"){$("askT").textContent=t==="question"?"Question":"Operator needs help";$("askBody").innerHTML=`<pre>${esc(p.question||p.summary)}</pre>`;$("abort").classList.toggle("hidden",t==="question");$("ask").classList.remove("hidden");row("human",esc(p.question||"help requested"))}
+  else if(t==="answer"||t==="help_response"){$("ask").classList.add("hidden")}
+  else if(t==="error")row("error",`<span class=fail>${esc(p.error)}</span>`);
+}
+let facts={};
+$("ok").onclick=()=>post("approve",{decision:"approve"});$("no").onclick=()=>post("approve",{decision:"reject"});
+$("ed").onclick=()=>post("approve",{decision:"edit",args:JSON.parse($("apArgs").value)});
+$("askGo").onclick=()=>{post("answer",{answer:$("askIn").value});$("askIn").value=""};$("abort").onclick=()=>post("answer",{answer:""});
+function finish(d){const b={VERIFIED:["✅ VERIFIED","pass"],NOT_VERIFIED:["⚠️ NOT VERIFIED","T2"],ESCALATED:["🛑 ESCALATED","fail"]}[d.outcome]||[d.outcome,""];
+  $("badge").textContent=b[0];$("badge").className=b[1];$("reasons").innerHTML=(d.reasons||[]).map(r=>"<div>• "+esc(r)+"</div>").join("");
+  $("rep").href=`/runs/${rid}/report`;$("outcome").classList.remove("hidden")}
+</script></body></html>

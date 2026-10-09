@@ -1,0 +1,23 @@
+# Deterministic policy gate configuration (see ai_operator/core/policy.py)
+allowed_hosts: [localhost, 127.0.0.1]
+allowed_read_paths: [company_env/data, runs]
+allowed_write_paths: [company_env/data/out, runs]
+
+limits:
+  max_retries_per_step: 3
+
+auto_approve:
+  expense_claim_max_inr: 25000      # T2 commits above this need a human
+
+# Buttons that are never commits (checked first)
+non_commit_labels: ['\bsign in\b', '\blog in\b', '\blogin\b', '\bsearch\b', '\bfilter\b', '\bnext\b', '\bback\b', '\baccept\b', '\bdismiss\b', '\bclose\b']
+# Anything matching is irreversible-ish -> always ask (T3)
+destructive_labels: ['\bdelete\b', '\bremove\b', '\bpay\b', '\bpayment\b', '\bcancel (claim|ticket|employee)\b', '\bterminate\b']
+# Anything matching (or any type=submit control) is a commit (T2)
+commit_labels: ['\bsubmit\b', '\bconfirm\b', '\bsend\b', '\bapprove\b', '\bcreate\b', '\bsave\b', '\bregister\b', '\bprovision\b', '\braise\b', '\bfile\b']
+
+# What a commit means depends on which system the page belongs to
+commit_rules:
+  - {url_contains: ":8001", rule: limit_expense}   # expense claims: limit-gated
+  - {url_contains: ":8002", rule: allow}           # HR record creation named in SOP
+  - {url_contains: ":8003", rule: allow}           # ticket creation named in SOP
