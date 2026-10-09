@@ -1,11 +1,31 @@
 """Pydantic contracts shared by every module (CONTEXT.md section 7)."""
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 Verdict = Literal["allow", "ask", "block"]
 Tier = Literal["T0", "T1", "T2", "T3"]
 Outcome = Literal["VERIFIED", "NOT_VERIFIED", "ESCALATED"]
+
+
+class Lenient(BaseModel):
+    """Base for models filled in by an LLM. Small models often emit null / lists / ints where we expect
+    strings or lists: drop nulls (so defaults apply) and coerce the common slips instead of failing the run."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_nulls(cls, data):
+        if isinstance(data, dict):
+            return {k: v for k, v in data.items() if v is not None}
+        return data
+
+
+def _as_str(v):
+    if v is None:
+        return ""
+    if isinstance(v, (list, tuple)):
+        return ", ".join(str(x) for x in v)
+    return str(v)
 
 
 class Event(BaseModel):
@@ -15,7 +35,7 @@ class Event(BaseModel):
 
 
 # ---------- verification ----------
-class Postcondition(BaseModel):
+class Postcondition(Lenient):
     """A machine-checkable claim about the world.
 
     kind=sql  spec: {db, query, params?, expect: [ {col: val}, ... ]}
@@ -28,6 +48,17 @@ class Postcondition(BaseModel):
     kind: Literal["sql", "file", "http", "ui", "llm"]
     description: str = ""
     spec: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("kind", mode="before")
+    @classmethod
+    def _kind(cls, v):
+        v = str(v).strip().lower()
+        return {"database": "sql", "db": "sql", "query": "sql", "web": "ui", "page": "ui", "browser": "ui", "api": "http"}.get(v, v)
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def _desc(cls, v):
+        return _as_str(v)
 
 
 class CheckResult(BaseModel):
@@ -46,18 +77,18 @@ class VerificationResult(BaseModel):
 
 
 # ---------- intake ----------
-class Ambiguity(BaseModel):
+class Ambiguity(Lenient):
     question: str
     blocking: bool = False
     resolvable_from: str = ""      # e.g. "receipts" / "hr.employees" - planner turns this into a step
 
 
-class SuccessCriterion(BaseModel):
+class SuccessCriterion(Lenient):
     description: str
     check: Optional[Postcondition] = None
 
 
-class TaskSpec(BaseModel):
+class TaskSpec(Lenient):
     request: str = ""
     outcome: str
     entities: dict[str, Any] = Field(default_factory=dict)
@@ -67,7 +98,7 @@ class TaskSpec(BaseModel):
 
 
 # ---------- planning ----------
-class Step(BaseModel):
+class Step(Lenient):
     id: str
     goal: str
     kind: Literal["tool", "human"] = "tool"
@@ -78,12 +109,39 @@ class Step(BaseModel):
     status: Literal["pending", "done", "failed", "skipped"] = "pending"
     attempts: int = 0
 
+    @field_validator("id", "goal", "tool_hint", mode="before")
+    @classmethod
+    def _strs(cls, v):
+        return _as_str(v)
 
-class Plan(BaseModel):
+    @field_validator("sop_ref", mode="before")
+    @classmethod
+    def _sop(cls, v):
+        if isinstance(v, (list, tuple)):
+            v = v[0] if v else None
+        return None if v in (None, "", "null", "none", "None") else str(v)
+
+    @field_validator("kind", mode="before")
+    @classmethod
+    def _kind(cls, v):
+        return "human" if str(v).strip().lower() in ("human", "approval", "ask") else "tool"
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _status(cls, v):
+        return v if v in ("pending", "done", "failed", "skipped") else "pending"
+
+
+class Plan(Lenient):
     version: int = 1
     steps: list[Step]
     final_postconditions: list[Postcondition] = Field(default_factory=list)
     sop_refs: list[str] = Field(default_factory=list)
+
+    @field_validator("sop_refs", mode="before")
+    @classmethod
+    def _refs(cls, v):
+        return [v] if isinstance(v, str) else [str(x) for x in v]
 
     def has_pending(self) -> bool:
         return any(s.status == "pending" for s in self.steps)
@@ -106,7 +164,7 @@ class Plan(BaseModel):
                     final_postconditions=self.final_postconditions, sop_refs=self.sop_refs)
 
 
-class ReplanOut(BaseModel):
+class ReplanOut(Lenient):
     steps: list[Step]
     note: str = ""
 
