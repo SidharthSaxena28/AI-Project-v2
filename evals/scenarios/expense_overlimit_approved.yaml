@@ -1,0 +1,19 @@
+id: expense_overlimit_approved
+request: Reimburse Priya's Mumbai trip
+files:
+- company_env/data/receipts/mumbai_overlimit
+faults: []
+approvals:
+  auto: true
+expect: success
+min_approvals: 1
+ground_truth:
+  success:
+    sql:
+    - db: company_env/data/expense.db
+      query: SELECT employee, amount_inr, status FROM claims WHERE employee='Priya Sharma'
+      expect:
+      - employee: Priya Sharma
+        amount_inr: 48920
+        status: pending_approval
+    attachments: 4

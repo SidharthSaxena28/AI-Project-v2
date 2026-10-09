@@ -1,0 +1,143 @@
+"""Pydantic contracts shared by every module (CONTEXT.md section 7)."""
+from typing import Any, Literal, Optional
+
+from pydantic import BaseModel, Field
+
+Verdict = Literal["allow", "ask", "block"]
+Tier = Literal["T0", "T1", "T2", "T3"]
+Outcome = Literal["VERIFIED", "NOT_VERIFIED", "ESCALATED"]
+
+
+class Event(BaseModel):
+    ts: float
+    type: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+# ---------- verification ----------
+class Postcondition(BaseModel):
+    """A machine-checkable claim about the world.
+
+    kind=sql  spec: {db, query, params?, expect: [ {col: val}, ... ]}
+    kind=file spec: {path, exists?, contains?, min_rows?, rows_contain?: [ {col: val} ]}
+    kind=http spec: {url, expect: {key: val}}
+    kind=ui   spec: {contains: "text"}
+    kind=llm  spec: {evidence_sql?: [ {db, query, params?} ]}   (fuzzy criteria only)
+    String values may hold {scratch.key}, {entities.key} or {files.count} placeholders.
+    """
+    kind: Literal["sql", "file", "http", "ui", "llm"]
+    description: str = ""
+    spec: dict[str, Any] = Field(default_factory=dict)
+
+
+class CheckResult(BaseModel):
+    description: str
+    kind: str = ""
+    expected: str = ""
+    actual: str = ""
+    passed: bool = False
+    authority: Literal["criterion", "helper"] = "criterion"
+
+
+class VerificationResult(BaseModel):
+    outcome: Outcome
+    checks: list[CheckResult] = Field(default_factory=list)
+    reasons: list[str] = Field(default_factory=list)
+
+
+# ---------- intake ----------
+class Ambiguity(BaseModel):
+    question: str
+    blocking: bool = False
+    resolvable_from: str = ""      # e.g. "receipts" / "hr.employees" - planner turns this into a step
+
+
+class SuccessCriterion(BaseModel):
+    description: str
+    check: Optional[Postcondition] = None
+
+
+class TaskSpec(BaseModel):
+    request: str = ""
+    outcome: str
+    entities: dict[str, Any] = Field(default_factory=dict)
+    success_criteria: list[SuccessCriterion] = Field(default_factory=list)
+    ambiguities: list[Ambiguity] = Field(default_factory=list)
+    files: list[str] = Field(default_factory=list)
+
+
+# ---------- planning ----------
+class Step(BaseModel):
+    id: str
+    goal: str
+    kind: Literal["tool", "human"] = "tool"
+    tool_hint: str = ""
+    sop_ref: Optional[str] = None
+    state_changing: bool = False
+    postconditions: list[Postcondition] = Field(default_factory=list)
+    status: Literal["pending", "done", "failed", "skipped"] = "pending"
+    attempts: int = 0
+
+
+class Plan(BaseModel):
+    version: int = 1
+    steps: list[Step]
+    final_postconditions: list[Postcondition] = Field(default_factory=list)
+    sop_refs: list[str] = Field(default_factory=list)
+
+    def has_pending(self) -> bool:
+        return any(s.status == "pending" for s in self.steps)
+
+    def next(self) -> Optional[Step]:
+        return next((s for s in self.steps if s.status == "pending"), None)
+
+    def revise(self, remaining: list[Step]) -> "Plan":
+        """Completed steps are frozen; only the remaining steps are replaced."""
+        done = [s for s in self.steps if s.status == "done"]
+        taken = {s.id for s in done}
+        fresh = []
+        for s in remaining:
+            if s.id in taken:
+                s = s.model_copy(update={"id": f"{s.id}-v{self.version + 1}"})
+            s.status = "pending"
+            fresh.append(s)
+            taken.add(s.id)
+        return Plan(version=self.version + 1, steps=done + fresh,
+                    final_postconditions=self.final_postconditions, sop_refs=self.sop_refs)
+
+
+class ReplanOut(BaseModel):
+    steps: list[Step]
+    note: str = ""
+
+
+# ---------- execution ----------
+class Action(BaseModel):
+    tool: str
+    args: dict[str, Any] = Field(default_factory=dict)
+    rationale: str = ""
+    step_id: str = ""
+
+
+class Decision(BaseModel):
+    verdict: Verdict
+    tier: Tier = "T3"
+    reason: str = ""
+    by_human: bool = False
+    edited_args: Optional[dict[str, Any]] = None
+
+
+class Observation(BaseModel):
+    ok: bool = True
+    error: Optional[str] = None
+    text: str = ""
+    data: dict[str, Any] = Field(default_factory=dict)
+    screenshot: Optional[str] = None
+
+
+class StepResult(BaseModel):
+    done: bool
+    summary: str = ""
+    blocked: bool = False              # a policy block happened in this step
+    rejected_by_human: bool = False    # a human said no
+    stuck: bool = False

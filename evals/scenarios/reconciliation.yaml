@@ -1,0 +1,31 @@
+id: reconciliation
+request: Reconcile the March vendor invoices against the ledger
+files:
+- company_env/data/invoices_march.xlsx
+faults: []
+approvals:
+  auto: true
+expect: success
+ground_truth:
+  success:
+    files:
+    - path: company_env/data/out/reconciliation_march.xlsx
+      min_rows: 9
+      rows_contain:
+      - invoice_no: INV-2026-0301
+        status: matched
+      - invoice_no: INV-2026-0304
+        status: amount_mismatch
+      - invoice_no: INV-2026-0306
+        status: missing_in_ledger
+      - invoice_no: INV-2026-0399
+        status: extra_in_ledger
+    sql:
+    - db: company_env/data/ticketing.db
+      query: SELECT COUNT(*) AS n FROM tickets WHERE title LIKE '%reconciliation%'
+      expect:
+      - n: 1
+    - db: company_env/data/expense.db
+      query: SELECT COUNT(*) AS n FROM ledger
+      expect:
+      - n: 8
